@@ -136,7 +136,3 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1].lower() == "drop":
         sys.exit(run_drag_and_drop())
     sys.exit(main())
-
-
-if __name__ == "__main__":
-    main()
