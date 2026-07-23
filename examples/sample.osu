@@ -1,0 +1,14 @@
+[General]
+AudioFilename: song.mp3
+Mode: 0
+
+[Metadata]
+Title: test map
+Artist: test artist
+Version: Normal
+
+[TimingPoints]
+0,500,4,1,0,100,1,0
+
+[HitObjects]
+256,192,1000,1,0,0:0:0:0:0
