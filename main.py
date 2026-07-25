@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional, TextIO
 
 from converter import ConversionPipeline
+from converter.parser import parse_osu
 
 
 def resolve_input_text(input_path: Optional[str] = None, use_stdin: bool = False, stdin_stream: Optional[TextIO] = None) -> str:
@@ -28,12 +29,12 @@ def build_cli() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
 
     convert_parser = subparsers.add_parser("convert", help="Convert an .osu file to JSON or Luau")
-    convert_parser.add_argument("input", help="Path to the .osu file to convert")
+    convert_parser.add_argument("input", nargs="?", help="Path to the .osu file to convert")
     convert_parser.add_argument("output", nargs="?", help="Path to write the converted output")
     convert_parser.add_argument("--format", choices=["json", "luau", "both"], default="json")
     convert_parser.add_argument("--stdin", action="store_true", help="Read .osu content from standard input")
 
-    interactive_parser = subparsers.add_parser("interactive", help="Start a very basic interactive prompt")
+    subparsers.add_parser("interactive", help="Start a very basic interactive prompt")
 
     return parser
 
@@ -41,6 +42,7 @@ def build_cli() -> argparse.ArgumentParser:
 def run_interactive_mode() -> int:
     print("osu -> Luau/JSON converter")
     print("Type 'quit' to exit")
+
     while True:
         try:
             path = input("Enter .osu file path: ").strip()
@@ -62,9 +64,36 @@ def run_interactive_mode() -> int:
             print("Unsupported format, defaulting to json")
             format_name = "json"
 
+        beatmap = parse_osu(content)
+        if beatmap.warnings:
+            for warning in beatmap.warnings:
+                print(f"Warning: {warning}")
+
         pipeline = ConversionPipeline()
-        result = pipeline.convert(content, output_format=format_name)
-        print(result)
+        if format_name == "json":
+            print(pipeline.json_serializer(beatmap))
+        elif format_name == "luau":
+            print(pipeline.luau_serializer(beatmap))
+        else:
+            print(pipeline.json_serializer(beatmap))
+            print()
+            print(pipeline.luau_serializer(beatmap))
+
+
+def _write_conversion_output(output_path: str, output_format: str, json_text: str, luau_text: str) -> None:
+    """Write conversion output to disk, splitting 'both' into two real files."""
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    if output_format == "both":
+        json_path = out.with_suffix(".json")
+        luau_path = out.with_suffix(".lua")
+        json_path.write_text(json_text, encoding="utf-8")
+        luau_path.write_text(luau_text, encoding="utf-8")
+        print(f"Wrote {json_path}")
+        print(f"Wrote {luau_path}")
+    else:
+        out.write_text(json_text if output_format == "json" else luau_text, encoding="utf-8")
 
 
 def handle_conversion(input_path: Optional[str], output_path: Optional[str], output_format: str, use_stdin: bool = False) -> int:
@@ -75,14 +104,29 @@ def handle_conversion(input_path: Optional[str], output_path: Optional[str], out
         return 2
 
     pipeline = ConversionPipeline()
-    result = pipeline.convert(content, output_format=output_format)
+    beatmap = parse_osu(content)
+
+    if beatmap.warnings:
+        for warning in beatmap.warnings:
+            print(f"Warning: {warning}", file=sys.stderr)
+
+    if output_format == "both":
+        json_text = pipeline.json_serializer(beatmap)
+        luau_text = pipeline.luau_serializer(beatmap)
+    elif output_format == "json":
+        json_text, luau_text = pipeline.json_serializer(beatmap), ""
+    else:
+        json_text, luau_text = "", pipeline.luau_serializer(beatmap)
 
     if output_path:
-        output_file = Path(output_path)
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-        output_file.write_text(result, encoding="utf-8")
+        _write_conversion_output(output_path, output_format, json_text, luau_text)
     else:
-        print(result)
+        if output_format == "both":
+            print(json_text)
+            print()
+            print(luau_text)
+        else:
+            print(json_text or luau_text)
 
     return 0
 
@@ -94,18 +138,11 @@ def main() -> int:
     if args.command == "convert":
         return handle_conversion(args.input, args.output, args.format, use_stdin=args.stdin)
 
-    if args.command == "interactive" or args.interactive:
+    if args.command == "interactive":
         return run_interactive_mode()
 
-    if args.input and not args.output and not args.stdin:
-        return handle_conversion(args.input, None, args.format)
-
-    if not args.input and not args.stdin:
-        parser.print_help()
-        return 1
-
-    output_path = args.output if args.output is not None else None
-    return handle_conversion(args.input, output_path, args.format, use_stdin=args.stdin)
+    parser.print_help()
+    return 1
 
 
 def run_drag_and_drop() -> int:

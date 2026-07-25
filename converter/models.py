@@ -78,6 +78,23 @@ class HitObject:
     time: int = 0
     type: int = 0
     hitsound: int = 0
+
+    is_circle: bool = False
+    is_slider: bool = False
+    is_spinner: bool = False
+    is_hold: bool = False
+
+    curve_type: str = ""
+    curve_points: List[List[float]] = field(default_factory=list)
+    slides: int = 1
+    length: float = 0.0
+    edge_sounds: List[int] = field(default_factory=list)
+    edge_sets: List[str] = field(default_factory=list)
+
+    end_time: int = 0
+
+    hit_sample: str = ""
+
     extras: List[str] = field(default_factory=list)
 
 
@@ -92,6 +109,7 @@ class Colour:
     r: int = 255
     g: int = 255
     b: int = 255
+    a: Optional[int] = None
 
 
 @dataclass(slots=True)
@@ -124,6 +142,10 @@ class Beatmap:
     raw_sections: Dict[str, UnknownSection] = field(default_factory=dict)
 
     raw_lines: List[str] = field(default_factory=list)
+
+    # Non-fatal issues found while parsing (e.g. malformed HitObjects/TimingPoints
+    # lines that were skipped). Empty when the file parsed cleanly.
+    warnings: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

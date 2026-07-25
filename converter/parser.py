@@ -67,17 +67,24 @@ def _parse_colour_value(value: str) -> Optional[Colour]:
         r=_parse_int(parts[0], 255),
         g=_parse_int(parts[1], 255),
         b=_parse_int(parts[2], 255),
+        a=_parse_int(parts[3], 255) if len(parts) > 3 else None,
     )
 
 
-def parse_osu(text: str, *, preserve_raw_lines: bool = False) -> Beatmap:
-    """
-    Parse a subset of .osu content into a structured beatmap model.
+def _parse_curve_points(raw: str) -> tuple[str, List[List[float]]]:
+    """Parse a slider's curve field, e.g. 'B|350:180|400:200' -> ('B', [[350,180],[400,200]])."""
+    segments = raw.split("|")
+    curve_type = segments[0].strip() if segments else ""
+    points: List[List[float]] = []
+    for segment in segments[1:]:
+        coords = segment.split(":")
+        if len(coords) != 2:
+            continue
+        points.append([_parse_float(coords[0], 0.0), _parse_float(coords[1], 0.0)])
+    return curve_type, points
 
-    - Standard sections are mapped into typed dataclasses.
-    - Unknown sections are preserved in Beatmap.raw_sections.
-    - If preserve_raw_lines=True, the original file lines are kept in Beatmap.raw_lines.
-    """
+
+def parse_osu(text: str, *, preserve_raw_lines: bool = False) -> Beatmap:
     beatmap = Beatmap()
     current_section = ""
     current_unknown: Optional[UnknownSection] = None
@@ -121,20 +128,70 @@ def parse_osu(text: str, *, preserve_raw_lines: bool = False) -> Beatmap:
                         effects=_parse_int(values[7], 0) if len(values) > 7 else 0,
                     )
                 )
+            else:
+                beatmap.warnings.append(
+                    f"Skipped malformed TimingPoints line (expected at least 2 fields, "
+                    f"got {len(values)}): {line!r}"
+                )
             continue
 
         if current_section == "HitObjects":
             values = _split_csv_line(line)
             if len(values) >= 5:
-                beatmap.hit_objects.append(
-                    HitObject(
-                        x=_parse_int(values[0], 0),
-                        y=_parse_int(values[1], 0),
-                        time=_parse_int(values[2], 0),
-                        type=_parse_int(values[3], 0),
-                        hitsound=_parse_int(values[4], 0),
-                        extras=values[5:],
-                    )
+                obj_type = _parse_int(values[3], 0)
+                tail = values[5:]
+
+                is_slider = bool(obj_type & 2)
+                is_spinner = bool(obj_type & 8)
+                is_hold = bool(obj_type & 128)
+                is_circle = not (is_slider or is_spinner or is_hold)
+
+                hit_object = HitObject(
+                    x=_parse_int(values[0], 0),
+                    y=_parse_int(values[1], 0),
+                    time=_parse_int(values[2], 0),
+                    type=obj_type,
+                    hitsound=_parse_int(values[4], 0),
+                    is_circle=is_circle,
+                    is_slider=is_slider,
+                    is_spinner=is_spinner,
+                    is_hold=is_hold,
+                )
+
+                if is_slider:
+                    if tail:
+                        hit_object.curve_type, hit_object.curve_points = _parse_curve_points(tail[0])
+                    if len(tail) > 1:
+                        hit_object.slides = _parse_int(tail[1], 1)
+                    if len(tail) > 2:
+                        hit_object.length = _parse_float(tail[2], 0.0)
+                    if len(tail) > 3:
+                        hit_object.edge_sounds = [
+                            _parse_int(item, 0) for item in tail[3].split("|") if item.strip()
+                        ]
+                    if len(tail) > 4:
+                        hit_object.edge_sets = [item for item in tail[4].split("|") if item.strip()]
+                    if len(tail) > 5:
+                        hit_object.hit_sample = tail[5]
+                    hit_object.extras = tail[6:]
+
+                elif is_spinner or is_hold:
+                    if tail:
+                        hit_object.end_time = _parse_int(tail[0], 0)
+                    if len(tail) > 1:
+                        hit_object.hit_sample = tail[1]
+                    hit_object.extras = tail[2:]
+
+                else:
+                    if tail:
+                        hit_object.hit_sample = tail[0]
+                    hit_object.extras = tail[1:]
+
+                beatmap.hit_objects.append(hit_object)
+            else:
+                beatmap.warnings.append(
+                    f"Skipped malformed HitObjects line (expected at least 5 fields, "
+                    f"got {len(values)}): {line!r}"
                 )
             continue
 
