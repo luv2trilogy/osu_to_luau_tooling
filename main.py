@@ -35,12 +35,6 @@ def build_cli() -> argparse.ArgumentParser:
 
     interactive_parser = subparsers.add_parser("interactive", help="Start a very basic interactive prompt")
 
-    parser.add_argument("input", nargs="?", help="Legacy positional input path")
-    parser.add_argument("output", nargs="?", help="Legacy positional output path")
-    parser.add_argument("--format", choices=["json", "luau", "both"], default="json")
-    parser.add_argument("--output", help="Optional path to write the converted output")
-    parser.add_argument("--stdin", action="store_true", help="Read .osu content from standard input")
-    parser.add_argument("--interactive", action="store_true", help="Start a very basic interactive prompt")
     return parser
 
 
